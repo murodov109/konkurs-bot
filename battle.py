@@ -1,6 +1,6 @@
 from telebot import TeleBot, types
 
-bot = TeleBot("TOKENINGNI_BU_YERGA_QOY")
+bot = TeleBot("8452391283:AAESGiQ0GClTdX8aElJonmj3194lpNin00M")
 
 battle_data = {
     "participants": [],
