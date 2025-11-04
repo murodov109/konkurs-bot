@@ -1,56 +1,78 @@
-import sqlite3
 from telebot import types
 
-conn = sqlite3.connect("konkurs.db", check_same_thread=False)
-cur = conn.cursor()
-cur.execute("""
-CREATE TABLE IF NOT EXISTS voice_participants (
-    user_id INTEGER PRIMARY KEY,
-    username TEXT,
-    votes INTEGER DEFAULT 0
-)
-""")
-conn.commit()
-
-def voice_konkurs(bot, call):
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    join_btn = types.InlineKeyboardButton("🎙 Qatnashish", callback_data="join_voice")
-    vote_btn = types.InlineKeyboardButton("🗳 Ovoz berish", callback_data="vote_voice")
-    markup.add(join_btn, vote_btn)
-    bot.send_message(
-        call.message.chat.id,
-        "🎤 Ovozniy konkurs boshlandi!\n"
-        "Ishtirok etish yoki ovoz berish uchun pastdagi tugmani tanlang.\n"
-        "Bot: @unversal_konkurs_bot",
-        reply_markup=markup
+def handle_voice_konkurs(bot, message, user_data, channel_id):
+    konkurs_post = bot.send_message(
+        channel_id,
+        "🎤 *Ovozli konkurs boshlandi!*\n\nQatnashish uchun pastdagi tugmani bosing 👇",
+        parse_mode="Markdown"
     )
 
-def add_participant(bot, call):
-    user_id = call.from_user.id
-    username = call.from_user.username or call.from_user.first_name
-    cur.execute("INSERT OR IGNORE INTO voice_participants (user_id, username) VALUES (?, ?)", (user_id, username))
-    conn.commit()
-    bot.answer_callback_query(call.id, "✅ Siz ovozniy konkursga qo‘shildingiz!")
-    bot.send_message(call.message.chat.id, f"🎙 {username} ishtirokchi sifatida qo‘shildi!")
+    markup = types.InlineKeyboardMarkup()
+    join_btn = types.InlineKeyboardButton("🚀 Qatnashish", callback_data=f"join_voice_{konkurs_post.message_id}")
+    markup.add(join_btn)
+    bot.edit_message_reply_markup(channel_id, konkurs_post.message_id, reply_markup=markup)
 
-def vote_for(bot, call):
-    user_id = call.from_user.id
-    cur.execute("SELECT * FROM voice_participants WHERE user_id=?", (user_id,))
-    voter = cur.fetchone()
-    if voter:
-        bot.answer_callback_query(call.id, "❌ Siz o‘zingizga ovoz bera olmaysiz.")
-        return
-    cur.execute("SELECT username FROM voice_participants ORDER BY RANDOM() LIMIT 1")
-    candidate = cur.fetchone()
-    if not candidate:
-        bot.answer_callback_query(call.id, "Hozircha ishtirokchilar yo‘q.")
-        return
-    cur.execute("UPDATE voice_participants SET votes = votes + 1 WHERE username=?", (candidate[0],))
-    conn.commit()
-    bot.send_message(call.message.chat.id, f"🗳 {call.from_user.username} {candidate[0]} foydalanuvchisiga ovoz berdi!")
+    user_data["voice"] = {
+        "participants": {},
+        "votes": {},
+        "post_id": konkurs_post.message_id
+    }
 
-def handle_voice_callbacks(bot, call):
-    if call.data == "join_voice":
-        add_participant(bot, call)
-    elif call.data == "vote_voice":
-        vote_for(bot, call)
+@staticmethod
+def update_voice_buttons(bot, channel_id, konkurs):
+    markup = types.InlineKeyboardMarkup()
+    for user_id, username in konkurs["participants"].items():
+        vote_count = konkurs["votes"].get(user_id, 0)
+        markup.add(types.InlineKeyboardButton(f"{username} ❤️ {vote_count}", callback_data=f"vote_{user_id}"))
+    bot.edit_message_reply_markup(channel_id, konkurs["post_id"], reply_markup=markup)
+
+def register_voice_handlers(bot, user_data, channel_id):
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("join_voice_"))
+    def join_voice(call):
+        konkurs = user_data.get("voice")
+        if not konkurs:
+            return bot.answer_callback_query(call.id, "❌ Konkurs topilmadi.")
+
+        user_id = call.from_user.id
+        username = "@" + call.from_user.username if call.from_user.username else call.from_user.first_name
+
+        if user_id in konkurs["participants"]:
+            return bot.answer_callback_query(call.id, "Siz allaqachon qatnashyapsiz 😉")
+
+        konkurs["participants"][user_id] = username
+        bot.answer_callback_query(call.id, "✅ Qatnashdingiz!")
+        update_voice_buttons(bot, channel_id, konkurs)
+
+    @bot.callback_query_handler(func=lambda call: call.data.startswith("vote_"))
+    def vote_user(call):
+        konkurs = user_data.get("voice")
+        if not konkurs:
+            return bot.answer_callback_query(call.id, "❌ Konkurs topilmadi.")
+
+        voter = call.from_user.id
+        voted_id = int(call.data.split("_")[1])
+
+        if voter == voted_id:
+            return bot.answer_callback_query(call.id, "O‘zingizga ovoz bera olmaysiz 😂")
+
+        if "voted_by" not in konkurs:
+            konkurs["voted_by"] = {}
+        if voter in konkurs["voted_by"]:
+            return bot.answer_callback_query(call.id, "Siz allaqachon ovoz bergansiz!")
+
+        konkurs["voted_by"][voter] = voted_id
+        konkurs["votes"][voted_id] = konkurs["votes"].get(voted_id, 0) + 1
+        bot.answer_callback_query(call.id, "🗳 Ovoz berildi!")
+        update_voice_buttons(bot, channel_id, konkurs)
+
+def check_user_leave(bot, user_id, user_data):
+    konkurs = user_data.get("voice")
+    if not konkurs:
+        return
+        
+    if "voted_by" in konkurs and user_id in konkurs["voted_by"]:
+        voted_id = konkurs["voted_by"].pop(user_id)
+        if voted_id in konkurs["votes"]:
+            konkurs["votes"][voted_id] -= 1
+            if konkurs["votes"][voted_id] < 0:
+                konkurs["votes"][voted_id] = 0
