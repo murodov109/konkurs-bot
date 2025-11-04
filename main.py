@@ -1,90 +1,74 @@
-import telebot
-from telebot import types
-from voice import handle_voice_konkurs
-from link import handle_link_konkurs
-
 BOT_TOKEN = "8452391283:AAESGiQ0GClTdX8aElJonmj3194lpNin00M"
+from telebot import TeleBot, types
+from voice import handle_voice_konkurs, stop_voice_konkurs
+from link import handle_link_konkurs, stop_link_konkurs
+from battle import handle_battle_konkurs, stop_battle_konkurs
+
+TOKEN = "8452391283:AAESGiQ0GClTdX8aElJonmj3194lpNin00M"
 ADMIN_ID = 7617397626
-CHANNEL_ID = "@YOUR_CHANNEL_USERNAME"
+bot = TeleBot(TOKEN, parse_mode="HTML")
 
-bot = telebot.TeleBot(BOT_TOKEN)
-user_data = {}
+def main_menu(chat_id):
+    text = "📢 Kanallar uchun kerakli buyruqlar ro'yxati 📜\n\n1. #konkurs — kanalga yuborsangiz 3 xil konkurs (ovozli, havolali, batl)\n2. #konkurs_stop — konkursni to'xtatish\n3. #konkurs_off — tugmalarni o'chirish\n\nBotdan foydalanish uchun kanalga admin sifatida qo'shing."
+    markup = types.InlineKeyboardMarkup()
+    add_btn = types.InlineKeyboardButton("➕ Kanalga qo‘shish", url="https://t.me/unversal_konkurs_bot?startchannel")
+    markup.add(add_btn)
+    bot.send_message(chat_id, text, reply_markup=markup)
 
-def check_user_in_channel(user_id):
-    try:
-        member = bot.get_chat_member(CHANNEL_ID, user_id)
-        return member.status in ["member", "administrator", "creator"]
-    except:
-        return False
-
-@bot.message_handler(commands=["start"])
+@bot.message_handler(commands=['start'])
 def start(message):
-    if check_user_in_channel(message.from_user.id):
-        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add("🎤 Ovozli konkurs", "🔗 Taklifli konkurs")
-        bot.send_message(message.chat.id, "Assalomu alaykum! Konkurs turini tanlang 👇", reply_markup=markup)
+    if message.from_user.id == ADMIN_ID:
+        admin_panel(message)
     else:
-        markup = types.InlineKeyboardMarkup()
-        join_btn = types.InlineKeyboardButton("📢 Kanalga qo‘shilish", url=f"https://t.me/{CHANNEL_ID.replace('@','')}")
-        check_btn = types.InlineKeyboardButton("✅ Tekshirish", callback_data="check_sub")
-        markup.add(join_btn)
-        markup.add(check_btn)
-        bot.send_message(message.chat.id, "Botdan foydalanish uchun kanalga obuna bo‘ling 👇", reply_markup=markup)
+        main_menu(message.chat.id)
 
-@bot.callback_query_handler(func=lambda call: call.data == "check_sub")
-def check_subscription(call):
-    if check_user_in_channel(call.from_user.id):
-        bot.answer_callback_query(call.id, "Obuna tasdiqlandi ✅")
-        bot.send_message(call.message.chat.id, "Endi konkurs turini tanlang 👇")
-    else:
-        bot.answer_callback_query(call.id, "Siz hali kanalga qo‘shilmadingiz ❗️")
-
-@bot.message_handler(func=lambda message: message.text == "🎤 Ovozli konkurs")
-def start_voice_konkurs(message):
-    handle_voice_konkurs(bot, message, user_data, CHANNEL_ID)
-
-@bot.message_handler(func=lambda message: message.text == "🔗 Taklifli konkurs")
-def start_link_konkurs(message):
-    handle_link_konkurs(bot, message, user_data, CHANNEL_ID)
-
-@bot.message_handler(commands=["admin"])
 def admin_panel(message):
-    if message.from_user.id != ADMIN_ID:
-        return bot.reply_to(message, "Bu bo‘lim faqat bot egasi uchun 🔒")
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("📈 Statistika", "📢 Reklama yuborish", "♻️ Konkursni yangilash", "⬅️ Chiqish")
-    bot.send_message(message.chat.id, "👑 Admin panel", reply_markup=markup)
+    markup.row("📈 Statistika", "📢 Reklama yuborish")
+    markup.row("🏁 Konkurslar ro‘yxati")
+    bot.send_message(message.chat.id, "👑 Admin paneliga xush kelibsiz!", reply_markup=markup)
 
-@bot.message_handler(func=lambda message: message.text == "📈 Statistika" and message.from_user.id == ADMIN_ID)
+@bot.message_handler(func=lambda m: m.text == "📈 Statistika" and m.from_user.id == ADMIN_ID)
 def show_stats(message):
-    total = len(user_data)
-    active = len([u for u in user_data if user_data[u].get("active", False)])
-    bot.send_message(message.chat.id, f"📊 Foydalanuvchilar: {total}\n🟢 Faollar: {active}")
+    bot.send_message(message.chat.id, "📊 Statistika: foydalanuvchilar soni va faoliyat hisoblanmoqda...")
 
-@bot.message_handler(func=lambda message: message.text == "📢 Reklama yuborish" and message.from_user.id == ADMIN_ID)
-def broadcast(message):
-    msg = bot.send_message(message.chat.id, "Reklama matnini yuboring:")
-    bot.register_next_step_handler(msg, send_broadcast)
+@bot.message_handler(func=lambda m: m.text == "📢 Reklama yuborish" and m.from_user.id == ADMIN_ID)
+def send_ad(message):
+    bot.send_message(message.chat.id, "✉️ Reklama matnini yuboring.")
+    bot.register_next_step_handler(message, broadcast_message)
 
-def send_broadcast(message):
-    count = 0
-    for user_id in user_data.keys():
-        try:
-            bot.send_message(user_id, message.text)
-            count += 1
-        except:
-            pass
-    bot.send_message(ADMIN_ID, f"✅ Reklama {count} ta foydalanuvchiga yuborildi.")
+def broadcast_message(message):
+    bot.send_message(message.chat.id, "📨 Reklama yuborildi (demo versiya).")
 
-@bot.message_handler(func=lambda message: message.text == "♻️ Konkursni yangilash" and message.from_user.id == ADMIN_ID)
-def reset_konkurs(message):
-    user_data.clear()
-    bot.send_message(message.chat.id, "🔄 Konkurs ma'lumotlari tozalandi.")
+@bot.message_handler(func=lambda m: m.text == "🏁 Konkurslar ro‘yxati" and m.from_user.id == ADMIN_ID)
+def konkurs_list(message):
+    bot.send_message(message.chat.id, "🎯 Mavjud konkurslar:\n1. Ovozli konkurs\n2. Taklif havolali konkurs\n3. Batl konkursi")
 
-@bot.message_handler(func=lambda message: message.text == "⬅️ Chiqish" and message.from_user.id == ADMIN_ID)
-def exit_admin(message):
-    markup = types.ReplyKeyboardRemove()
-    bot.send_message(message.chat.id, "Admin paneldan chiqdingiz.", reply_markup=markup)
+@bot.message_handler(func=lambda message: message.text and "#konkurs" in message.text)
+def konkurs_start(message):
+    chat_id = message.chat.id
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    btn1 = types.InlineKeyboardButton("🎤 Ovozli konkurs", callback_data="konkurs_voice")
+    btn2 = types.InlineKeyboardButton("🔗 Taklif havolali", callback_data="konkurs_link")
+    btn3 = types.InlineKeyboardButton("⚔️ Batl konkursi", callback_data="konkurs_battle")
+    markup.add(btn1, btn2, btn3)
+    bot.reply_to(message, "🔰 Qaysi turdagi konkursni boshlaymiz?", reply_markup=markup)
 
-print("✅ Bot ishga tushdi...")
+@bot.callback_query_handler(func=lambda call: call.data in ["konkurs_voice", "konkurs_link", "konkurs_battle"])
+def konkurs_choice(call):
+    if call.data == "konkurs_voice":
+        handle_voice_konkurs(call.message)
+    elif call.data == "konkurs_link":
+        handle_link_konkurs(call.message)
+    elif call.data == "konkurs_battle":
+        handle_battle_konkurs(call.message)
+    bot.answer_callback_query(call.id, "Konkurs boshlandi!")
+
+@bot.message_handler(func=lambda message: message.text and "#konkurs_stop" in message.text)
+def konkurs_stop(message):
+    stop_voice_konkurs(message)
+    stop_link_konkurs(message)
+    stop_battle_konkurs(message)
+    bot.reply_to(message, "⛔ Konkurs to‘xtatildi.")
+
 bot.infinity_polling()
